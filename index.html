@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>拼豆图纸编辑器</title>
+<style>
+
+:root {
+  --pink: #FF5C8A;
+  --pink-soft: #FFE4EC;
+  --pink-mid: #FFC9D9;
+  --bg: #ffffff;
+  --text: #333;
+  --muted: #888;
+  --border: #f0d0da;
+  --shadow: 0 2px 12px rgba(255,92,138,0.12);
+  --radius: 12px;
+  --cell: 16px;
+  --ruler: 24px;
+  --panel: 260px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+button, input, select { font: inherit; }
+button {
+  cursor: pointer; border: none; background: var(--pink-soft); color: var(--text);
+  border-radius: 8px; padding: 7px 10px; transition: background .15s, transform .1s;
+}
+button:hover { background: var(--pink-mid); }
+button:active { transform: scale(0.97); }
+button.active, button.primary { background: var(--pink); color: #fff; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn-row button { flex: 1; min-width: 0; white-space: nowrap; }
+.section { margin-bottom: 14px; }
+.section-title {
+  font-size: 12px; font-weight: 600; color: var(--pink);
+  margin-bottom: 8px; letter-spacing: 0.02em;
+}
+.card {
+  background: #fff; border-radius: var(--radius);
+  box-shadow: var(--shadow); border: 1px solid var(--border);
+  padding: 12px;
+}
+label.inline { display: flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; }
+input[type="range"] { width: 100%; accent-color: var(--pink); }
+input[type="text"], input[type="search"], select {
+  width: 100%; padding: 7px 10px; border: 1px solid var(--border);
+  border-radius: 8px; outline: none; background: #fff;
+}
+input[type="text"]:focus, input[type="search"]:focus, select:focus { border-color: var(--pink); }
+.hidden-file { display: none; }
+#app {
+  display: grid;
+  grid-template-columns: var(--panel) 1fr var(--panel);
+  grid-template-rows: 100vh;
+  height: 100vh;
+}
+.panel {
+  overflow-y: auto; padding: 12px;
+  background: #fffafc;
+  border-right: 1px solid var(--border);
+}
+.panel.right { border-right: none; border-left: 1px solid var(--border); }
+.panel-header {
+  font-size: 16px; font-weight: 700; color: var(--pink);
+  margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+}
+.panel-header .logo {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--pink), var(--pink-mid));
+  display: grid; place-items: center; color: #fff; font-size: 14px;
+}
+.center {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #ffe4ec 25%, transparent 25%),
+    linear-gradient(-45deg, #ffe4ec 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ffe4ec 75%),
+    linear-gradient(-45deg, transparent 75%, #ffe4ec 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+.top-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; background: rgba(255,255,255,0.92);
+  border-bottom: 1px solid var(--border); backdrop-filter: blur(6px);
+  z-index: 5; flex-shrink: 0;
+}
+.top-toolbar .spacer { flex: 1; }
+.canvas-wrap {
+  flex: 1; overflow: hidden; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 0;
+}
+.canvas-stage {
+  position: relative;
+  transform-origin: center center;
+  will-change: transform;
+}
+.ruler-h, .ruler-v {
+  position: absolute; background: #fff; z-index: 3;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.ruler-h { top: 0; left: var(--ruler); height: var(--ruler); overflow: hidden; }
+.ruler-v { top: var(--ruler); left: 0; width: var(--ruler); overflow: hidden; }
+.ruler-corner {
+  position: absolute; top: 0; left: 0;
+  width: var(--ruler); height: var(--ruler);
+  background: var(--pink-soft); z-index: 4;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.canvas-stack {
+  position: absolute;
+  top: var(--ruler); left: var(--ruler);
+  box-shadow: 0 4px 24px rgba(255,92,138,0.18);
+  background: #fff;
+}
+#refCanvas, #drawCanvas {
+  position: absolute; top: 0; left: 0;
+  image-rendering: pixelated;
+  display: block;
+}
+#refCanvas { z-index: 1; }
+#drawCanvas { z-index: 2; cursor: crosshair; touch-action: none; }
+.color-preview {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; background: var(--pink-soft); border-radius: 10px;
+  margin-bottom: 10px;
+}
+.color-swatch {
+  width: 44px; height: 44px; border-radius: 10px;
+  border: 2px solid #fff; box-shadow: 0 0 0 2px var(--pink);
+  flex-shrink: 0;
+}
+.color-meta { font-size: 12px; }
+.color-meta .code { font-weight: 700; font-size: 16px; color: var(--pink); }
+.color-meta .hex { color: var(--muted); }
+.palette-search { margin-bottom: 8px; }
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.palette-item {
+  aspect-ratio: 1; border-radius: 6px; border: 2px solid transparent;
+  cursor: pointer; position: relative; font-size: 8px; font-weight: 700;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 1px; color: #333; text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
+}
+.palette-item.selected {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px rgba(255,92,138,0.35), inset 0 0 0 1px rgba(0,0,0,0.08);
+  z-index: 1;
+}
+.palette-item.light-text { color: #fff; text-shadow: 0 0 2px #000; }
+.stats-total {
+  text-align: center; padding: 10px; background: var(--pink-soft);
+  border-radius: 10px; margin-bottom: 8px;
+}
+.stats-total .num { font-size: 28px; font-weight: 800; color: var(--pink); line-height: 1.1; }
+.stats-total .label { font-size: 12px; color: var(--muted); }
+.stats-kinds { text-align: center; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
+.stats-list { max-height: 260px; overflow-y: auto; }
+.stat-row {
+  display: grid; grid-template-columns: 18px 36px 1fr 36px;
+  gap: 6px; align-items: center; margin-bottom: 6px; font-size: 11px;
+}
+.stat-row .sw { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); }
+.stat-row .bar-wrap { height: 8px; background: #f5e6eb; border-radius: 4px; overflow: hidden; }
+.stat-row .bar { height: 100%; background: var(--pink); border-radius: 4px; }
+.stat-row .cnt { text-align: right; color: var(--muted); }
+.size-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.size-row input[type="range"] { flex: 1; }
+.size-val { min-width: 52px; text-align: center; font-weight: 600; color: var(--pink); }
+.presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+#toast-host {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 9999; display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none; align-items: center;
+}
+.toast {
+  background: rgba(40,20,30,0.88); color: #fff; padding: 10px 16px;
+  border-radius: 999px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  animation: toastIn .2s ease; max-width: 90vw;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+#modal-mask {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  z-index: 10000; display: none; align-items: center; justify-content: center;
+}
+#modal-mask.show { display: flex; }
+.modal {
+  background: #fff; border-radius: 16px; padding: 20px; width: min(340px, 90vw);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+}
+.modal h3 { margin-bottom: 8px; color: var(--pink); }
+.modal p { color: var(--muted); margin-bottom: 16px; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal .actions button { min-width: 72px; }
+.mobile-top, .mobile-tabs, .mobile-sheet { display: none; }
+@media (max-width: 768px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+    height: 100dvh;
+  }
+  .desk-only, .panel.left, .panel.right { display: none !important; }
+  .mobile-top {
+    display: flex; gap: 6px; padding: 8px; overflow-x: auto;
+    background: #fff; border-bottom: 1px solid var(--border);
+    -webkit-overflow-scrolling: touch; flex-shrink: 0;
+  }
+  .mobile-top button { flex: 0 0 auto; white-space: nowrap; }
+  .center { grid-row: 2; min-height: 0; }
+  .top-toolbar { display: none; }
+  .mobile-tabs {
+    display: flex; background: #fff; border-top: 1px solid var(--border);
+    flex-shrink: 0; z-index: 20;
+  }
+  .mobile-tabs button {
+    flex: 1; border-radius: 0; padding: 12px 8px; background: #fff;
+    color: var(--muted); font-weight: 600;
+  }
+  .mobile-tabs button.active { color: var(--pink); background: var(--pink-soft); }
+  .mobile-sheet {
+    display: none; position: fixed; left: 0; right: 0; bottom: 48px;
+    max-height: 55vh; overflow-y: auto; background: #fff;
+    border-top: 1px solid var(--border); padding: 12px;
+    z-index: 19; box-shadow: 0 -8px 24px rgba(255,92,138,0.12);
+  }
+  .mobile-sheet.open { display: block; }
+  .palette-grid { grid-template-columns: repeat(8, 1fr); max-height: 40vh; }
+  .canvas-wrap { touch-action: none; }
+}
+
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="mobile-top" id="mobileTop">
+    <button data-tool="pen" class="active tool-btn">✏️ 画笔</button>
+    <button data-tool="eraser" class="tool-btn">🧹 橡皮</button>
+    <button data-tool="eyedropper" class="tool-btn">💉 取色</button>
+    <button id="mUndo">↩️ 撤销</button>
+    <button id="mRedo">↪️ 重做</button>
+  </div>
+
+  <aside class="panel left desk-only">
+    <div class="panel-header"><div class="logo">豆</div>拼豆编辑器</div>
+
+    <div class="section card">
+      <div class="section-title">绘图工具</div>
+      <div class="btn-row">
+        <button data-tool="pen" class="active tool-btn" title="B">✏️ 画笔</button>
+        <button data-tool="eraser" class="tool-btn" title="E">🧹 橡皮</button>
+        <button data-tool="eyedropper" class="tool-btn" title="I">💉 取色</button>
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="btnUndo" title="Ctrl+Z">↩️ 撤销</button>
+        <button id="btnRedo" title="Ctrl+Y">↪️ 重做</button>
+      </div>
+    </div>
+
+    <div class="section card">
+      <div class="section-title">画布尺寸</div>
+      <div class="size-row">
+        <span>宽</span>
+        <input type="range" id="sizeW" min="4" max="100" value="60">
+        <span class="size-val" id="sizeWVal">60</span>
+      </div>
+      <div class="size-row">
+        <span>高</span>
+        <input type="range" id="sizeH" min="4" max="100" value="60">
+        <span class="size-val" id="sizeHVal">60</span>
+      </div>
+      <div class="presets" id="sizePresets">
+        <button data-size="16">16</button>
+        <button data-size="24">24</button>
+        <button data-size="32">32</button>
+        <button data-size="40">40</button>
+        <button data-size="48">48</button>
+        <button data-size="60">60</button>
+      </div>
+    </div>
+
+    <div class="section card">
+      <div class="section-title">图案变换</div>
+      <div class="btn-row">
+        <button id="btnFlipH">↔️ 水平</button>
+        <button id="btnFlipV">↕️ 垂直</button>
+        <button id="btnRotate">🔄 旋转</button>
+      </div>
+    </div>
+
+    <div class="section card">
+      <div class="section-title">显示选项</div>
+      <label class="inline"><input type="checkbox" id="chkGrid" checked> 显示网格</label>
+      <label class="inline"><input type="checkbox" id="chkRuler" checked> 显示标尺</label>
+      <label class="inline"><input type="checkbox" id="chkCodes"> 色号数字叠加</label>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="btnPreviewMode" class="primary" style="flex:1">预览：色块</button>
+      </div>
+    </div>
+
+    <div class="section card">
+      <div class="section-title">参考底图</div>
+      <div class="btn-row">
+        <button id="btnRefUpload">📷 上传</button>
+        <button id="btnRefRemove">移除</button>
+      </div>
+      <input type="file" id="refFile" class="hidden-file" accept="image/*">
+      <label class="inline" style="margin-top:8px">透明度 <span id="refOpacityVal">50%</span></label>
+      <input type="range" id="refOpacity" min="0" max="100" value="50">
+    </div>
+
+    <div class="section card">
+      <div class="section-title">图片转拼豆</div>
+      <label class="inline">像素块大小</label>
+      <select id="blockSize">
+        <option value="auto" selected>自动检测</option>
+        <option value="1">1×1</option>
+        <option value="2">2×2</option>
+        <option value="3">3×3</option>
+        <option value="4">4×4</option>
+        <option value="5">5×5</option>
+        <option value="6">6×6</option>
+        <option value="8">8×8</option>
+        <option value="10">10×10</option>
+        <option value="12">12×12</option>
+        <option value="16">16×16</option>
+      </select>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="btnImg2Bead" class="primary">✨ 一键转换</button>
+      </div>
+      <input type="file" id="img2beadFile" class="hidden-file" accept="image/*">
+    </div>
+
+    <div class="section card">
+      <div class="section-title">其他</div>
+      <div class="btn-row">
+        <button id="btnClear">🗑️ 清空</button>
+        <button id="btnExport" class="primary">⬇️ 导出PNG</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="center">
+    <div class="top-toolbar desk-only">
+      <button data-tool="pen" class="active tool-btn">✏️ 画笔</button>
+      <button data-tool="eraser" class="tool-btn">🧹 橡皮</button>
+      <button data-tool="eyedropper" class="tool-btn">💉 取色</button>
+      <button id="tUndo">↩️</button>
+      <button id="tRedo">↪️</button>
+      <button id="tPreview">预览：色块</button>
+      <div class="spacer"></div>
+      <span id="coordHint" style="color:var(--muted);font-size:12px">—</span>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <div class="canvas-stage" id="canvasStage">
+        <div class="ruler-corner" id="rulerCorner"></div>
+        <canvas class="ruler-h" id="rulerH"></canvas>
+        <canvas class="ruler-v" id="rulerV"></canvas>
+        <div class="canvas-stack" id="canvasStack">
+          <canvas id="refCanvas"></canvas>
+          <canvas id="drawCanvas"></canvas>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="panel right desk-only">
+    <div class="section-title">当前颜色</div>
+    <div class="color-preview" id="colorPreview">
+      <div class="color-swatch" id="curSwatch"></div>
+      <div class="color-meta">
+        <div class="code" id="curCode">A1</div>
+        <div class="hex" id="curHex">#FAF4C8</div>
+      </div>
+    </div>
+    <div class="palette-search">
+      <input type="search" id="paletteSearch" placeholder="搜索色号 / hex…">
+    </div>
+    <div class="palette-grid" id="paletteGrid"></div>
+
+    <div class="section-title" style="margin-top:14px">用豆统计</div>
+    <div class="stats-total">
+      <div class="num" id="statTotal">0</div>
+      <div class="label">总用豆数</div>
+    </div>
+    <div class="stats-kinds">使用色号：<strong id="statKinds">0</strong> 种</div>
+    <div class="stats-list" id="statsList"></div>
+  </aside>
+
+  <div class="mobile-tabs" id="mobileTabs">
+    <button data-sheet="palette" class="active">色板</button>
+    <button data-sheet="tools">工具</button>
+    <button data-sheet="more">更多</button>
+  </div>
+</div>
+
+<div class="mobile-sheet" id="sheet-palette">
+  <div class="color-preview">
+    <div class="color-swatch" id="mCurSwatch"></div>
+    <div class="color-meta">
+      <div class="code" id="mCurCode">A1</div>
+      <div class="hex" id="mCurHex">#FAF4C8</div>
+    </div>
+  </div>
+  <input type="search" id="mPaletteSearch" placeholder="搜索色号 / hex…" style="margin-bottom:8px">
+  <div class="palette-grid" id="mPaletteGrid"></div>
+  <div class="stats-total" style="margin-top:10px">
+    <div class="num" id="mStatTotal">0</div>
+    <div class="label">总用豆数 · <span id="mStatKinds">0</span> 色</div>
+  </div>
+</div>
+<div class="mobile-sheet" id="sheet-tools">
+  <div class="section">
+    <div class="section-title">画布尺寸</div>
+    <div class="size-row">
+      <button id="mWMinus">−</button>
+      <span class="size-val" id="mSizeLabel">60 × 60</span>
+      <button id="mWPlus">+</button>
+    </div>
+    <div class="presets" id="mPresets">
+      <button data-size="16">16</button>
+      <button data-size="24">24</button>
+      <button data-size="32">32</button>
+      <button data-size="40">40</button>
+      <button data-size="48">48</button>
+      <button data-size="60">60</button>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">图案变换</div>
+    <div class="btn-row">
+      <button id="mFlipH">↔️ 水平</button>
+      <button id="mFlipV">↕️ 垂直</button>
+      <button id="mRotate">🔄 旋转</button>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">显示</div>
+    <label class="inline"><input type="checkbox" id="mChkGrid" checked> 网格</label>
+    <label class="inline"><input type="checkbox" id="mChkRuler" checked> 标尺</label>
+    <label class="inline"><input type="checkbox" id="mChkCodes"> 色号叠加</label>
+    <div class="btn-row" style="margin-top:8px">
+      <button id="mPreviewMode" class="primary">预览：色块</button>
+    </div>
+  </div>
+</div>
+<div class="mobile-sheet" id="sheet-more">
+  <div class="section">
+    <div class="section-title">参考底图</div>
+    <div class="btn-row">
+      <button id="mRefUpload">📷 上传</button>
+      <button id="mRefRemove">移除</button>
+    </div>
+    <label class="inline">透明度 <span id="mRefOpacityVal">50%</span></label>
+    <input type="range" id="mRefOpacity" min="0" max="100" value="50">
+  </div>
+  <div class="section">
+    <div class="section-title">图片转拼豆</div>
+    <select id="mBlockSize">
+      <option value="auto" selected>自动检测</option>
+      <option value="1">1×1</option><option value="2">2×2</option><option value="3">3×3</option>
+      <option value="4">4×4</option><option value="5">5×5</option><option value="6">6×6</option>
+      <option value="8">8×8</option><option value="10">10×10</option><option value="12">12×12</option>
+      <option value="16">16×16</option>
+    </select>
+    <div class="btn-row" style="margin-top:8px">
+      <button id="mImg2Bead" class="primary">✨ 一键转换</button>
+    </div>
+  </div>
+  <div class="section">
+    <div class="btn-row">
+      <button id="mClear">🗑️ 清空</button>
+      <button id="mExport" class="primary">⬇️ 导出PNG</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-host"></div>
+<div id="modal-mask">
+  <div class="modal">
+    <h3 id="modalTitle">确认</h3>
+    <p id="modalMsg"></p>
+    <div class="actions">
+      <button id="modalCancel">取消</button>
+      <button id="modalOk" class="primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ========== Palette Data (221 colors) ========== */
+const PALETTE_CSV = `code,hex
+A1,#FAF4C8
+A2,#FFFFD5
+A3,#FEFF8B
+A4,#FBED56
+A5,#F4D738
+A6,#FEAC4C
+A7,#FE8B4C
+A8,#FFDA45
+A9,#FF995B
+A10,#F77C31
+A11,#FFDD99
+A12,#FE9F72
+A13,#FFC365
+A14,#FD543D
+A15,#FFF365
+A16,#FFFF9F
+A17,#FFE36E
+A18,#FEBE7D
+A19,#FD7C72
+A20,#FFD568
+A21,#FFE395
+A22,#F4F57D
+A23,#E6C9B7
+A24,#F7F8A2
+A25,#FFD67D
+A26,#FFC830
+B1,#E6EE31
+B2,#63F347
+B3,#9EF780
+B4,#5DE035
+B5,#35E352
+B6,#65E2A6
+B7,#3DAF80
+B8,#1C9C4F
+B9,#27523A
+B10,#95D3C2
+B11,#5D722A
+B12,#166F41
+B13,#CAEB7B
+B14,#ADE946
+B15,#2E5132
+B16,#C5ED9C
+B17,#9BB13A
+B18,#E6EE49
+B19,#24B88C
+B20,#C2F0CC
+B21,#156A6B
+B22,#0B3C43
+B23,#303A21
+B24,#EEFCA5
+B25,#4E846D
+B26,#8D7A35
+B27,#CCE1AF
+B28,#9EE5B9
+B29,#C5E254
+B30,#E2FCB1
+B31,#B0E792
+B32,#9CAB5A
+C1,#E8FFE7
+C2,#A9F9FC
+C3,#A0E2FB
+C4,#41CCFF
+C5,#01ACEB
+C6,#50AAF0
+C7,#3677D2
+C8,#0F54C0
+C9,#324BCA
+C10,#3EBCE2
+C11,#28DDDE
+C12,#1C334D
+C13,#CDE8FF
+C14,#D5FDFF
+C15,#22C4C6
+C16,#1557A8
+C17,#04D1F6
+C18,#1D3344
+C19,#1887A2
+C20,#176DAF
+C21,#BEDDFF
+C22,#67B4BE
+C23,#C8E2FF
+C24,#7CC4FF
+C25,#A9E5E5
+C26,#3CAED8
+C27,#D3DFFA
+C28,#BBCFED
+C29,#34488E
+D1,#AEB4F2
+D2,#858EDD
+D3,#2F54AF
+D4,#182A84
+D5,#B843C5
+D6,#AC7BDE
+D7,#8854B3
+D8,#E2D3FF
+D9,#D5B9F8
+D10,#361851
+D11,#B9BAE1
+D12,#DE9AD4
+D13,#B90095
+D14,#8B279B
+D15,#2F1F90
+D16,#E3E1EE
+D17,#C4D4F6
+D18,#A45EC7
+D19,#D8C3D7
+D20,#9C32B2
+D21,#9A009B
+D22,#333A95
+D23,#EBDAFC
+D24,#7786E5
+D25,#494FC7
+D26,#DFC2F8
+E1,#FDD3CC
+E2,#FEC0DF
+E3,#FFB7E7
+E4,#E8649E
+E5,#F551A2
+E6,#F13D74
+E7,#C63478
+E8,#FFDBE9
+E9,#E970CC
+E10,#D33793
+E11,#FCDDD2
+E12,#F78FC3
+E13,#B5006D
+E14,#FFD1BA
+E15,#F8C7C9
+E16,#FFF3EB
+E17,#FFE2EA
+E18,#FFC7DB
+E19,#FEBAD5
+E20,#D8C7D1
+E21,#BD9DA1
+E22,#B785A1
+E23,#937A8D
+E24,#E1BCE8
+F1,#FD957B
+F2,#FC3D46
+F3,#F74941
+F4,#FC283C
+F5,#E7002F
+F6,#943630
+F7,#971937
+F8,#BC0028
+F9,#E2677A
+F10,#8A4526
+F11,#5A2121
+F12,#FD4E6A
+F13,#F35744
+F14,#FFA9AD
+F15,#D30022
+F16,#FEC2A6
+F17,#E69C79
+F18,#D37C46
+F19,#C1444A
+F20,#CD9391
+F21,#F7B4C6
+F22,#FDC0D0
+F23,#F67E66
+F24,#E698AA
+F25,#E54B4F
+G1,#FFE2CE
+G2,#FFC4AA
+G3,#F4C3A5
+G4,#E1B383
+G5,#EDB045
+G6,#E99C17
+G7,#9D5B3E
+G8,#753832
+G9,#E6B483
+G10,#D98C39
+G11,#E0C593
+G12,#FFC890
+G13,#B7714A
+G14,#8D614C
+G15,#FCF9E0
+G16,#F2D9BA
+G17,#78524B
+G18,#FFE4CC
+G19,#E07935
+G20,#A94023
+G21,#B88558
+H1,#FDFBFF
+H2,#FEFFFF
+H3,#B6B1BA
+H4,#89858C
+H5,#48464E
+H6,#2F2B2F
+H7,#000000
+H8,#E7D6DB
+H9,#EDEDED
+H10,#EEE9EA
+H11,#CECDD5
+H12,#FFF5ED
+H13,#F5ECD2
+H14,#CFD7D3
+H15,#98A6A8
+H16,#1D1414
+H17,#F1EDED
+H18,#FFFDF0
+H19,#F6EFE2
+H20,#949FA3
+H21,#FFFBE1
+H22,#CACAD4
+H23,#9A9D94
+M1,#BCC6B8
+M2,#8AA386
+M3,#697D80
+M4,#E3D2BC
+M5,#D0CCAA
+M6,#B0A782
+M7,#B4A497
+M8,#B38281
+M9,#A58767
+M10,#C5B2BC
+M11,#9F7594
+M12,#644749
+M13,#D19066
+M14,#C77362
+M15,#757D78`;
+const PALETTE = PALETTE_CSV.trim().split('\n').slice(1).map(line => {
+  const [code, hex] = line.split(',');
+  return { code, hex };
+});
+const PALETTE_MAP = Object.fromEntries(PALETTE.map(p => [p.code, p.hex]));
+const PALETTE_RGB = PALETTE.map(p => {
+  const h = p.hex.replace('#','');
+  return {
+    code: p.code, hex: p.hex,
+    r: parseInt(h.slice(0,2),16),
+    g: parseInt(h.slice(2,4),16),
+    b: parseInt(h.slice(4,6),16)
+  };
+});
+
+/* ========== State ========== */
+const CELL = 16;
+const RULER = 24;
+const MAX_HISTORY = 50;
+const PREVIEW_MODES = ['block', 'bead', 'code'];
+const PREVIEW_LABELS = { block: '色块', bead: '仿真豆', code: '色号' };
+
+const state = {
+  w: 60, h: 60,
+  grid: null,
+  tool: 'pen',
+  color: 'A1',
+  showGrid: true,
+  showRuler: true,
+  showCodes: false,
+  previewMode: 'block',
+  history: [],
+  histIndex: -1,
+  refImage: null,
+  refOpacity: 0.5,
+  scale: 1,
+  panX: 0, panY: 0,
+  drawing: false,
+  lastCell: null,
+  strokeChanged: false
+};
+
+function emptyGrid(w, h) {
+  return Array.from({ length: h }, () => Array(w).fill(null));
+}
+function cloneGrid(g) {
+  return g.map(row => row.slice());
+}
+state.grid = emptyGrid(60, 60);
+
+/* ========== DOM ========== */
+const drawCanvas = document.getElementById('drawCanvas');
+const refCanvas = document.getElementById('refCanvas');
+const dctx = drawCanvas.getContext('2d');
+const rctx = refCanvas.getContext('2d');
+const rulerH = document.getElementById('rulerH');
+const rulerV = document.getElementById('rulerV');
+const rhctx = rulerH.getContext('2d');
+const rvctx = rulerV.getContext('2d');
+const canvasStage = document.getElementById('canvasStage');
+const canvasStack = document.getElementById('canvasStack');
+const canvasWrap = document.getElementById('canvasWrap');
+
+/* ========== Toast / Confirm ========== */
+function toast(msg, ms) {
+  ms = ms || 2200;
+  const host = document.getElementById('toast-host');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(function(){ el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, ms - 300);
+  setTimeout(function(){ el.remove(); }, ms);
+}
+
+function confirmDialog(title, msg) {
+  return new Promise(function(resolve) {
+    const mask = document.getElementById('modal-mask');
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalMsg').textContent = msg;
+    mask.classList.add('show');
+    const ok = document.getElementById('modalOk');
+    const cancel = document.getElementById('modalCancel');
+    function cleanup(v) {
+      mask.classList.remove('show');
+      ok.onclick = null;
+      cancel.onclick = null;
+      resolve(v);
+    }
+    ok.onclick = function(){ cleanup(true); };
+    cancel.onclick = function(){ cleanup(false); };
+  });
+}
+
+/* ========== History ========== */
+function pushHistory() {
+  if (state.histIndex < state.history.length - 1) {
+    state.history = state.history.slice(0, state.histIndex + 1);
+  }
+  state.history.push({
+    w: state.w, h: state.h,
+    grid: cloneGrid(state.grid)
+  });
+  if (state.history.length > MAX_HISTORY) {
+    state.history.shift();
+  }
+  state.histIndex = state.history.length - 1;
+  updateUndoRedo();
+}
+function undo() {
+  if (state.histIndex <= 0) { toast('没有可撤销的操作'); return; }
+  state.histIndex--;
+  restoreHist();
+  toast('已撤销');
+}
+function redo() {
+  if (state.histIndex >= state.history.length - 1) { toast('没有可重做的操作'); return; }
+  state.histIndex++;
+  restoreHist();
+  toast('已重做');
+}
+function restoreHist() {
+  const snap = state.history[state.histIndex];
+  state.w = snap.w; state.h = snap.h;
+  state.grid = cloneGrid(snap.grid);
+  syncSizeUI();
+  resizeCanvases();
+  renderAll();
+  updateStats();
+  updateUndoRedo();
+}
+function updateUndoRedo() {
+  const canU = state.histIndex > 0;
+  const canR = state.histIndex < state.history.length - 1;
+  ['btnUndo','tUndo','mUndo'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.disabled = !canU;
+  });
+  ['btnRedo','tRedo','mRedo'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.disabled = !canR;
+  });
+}
+
+/* ========== Size / Resize ========== */
+function syncSizeUI() {
+  const sw = document.getElementById('sizeW');
+  const sh = document.getElementById('sizeH');
+  if (sw) { sw.value = state.w; document.getElementById('sizeWVal').textContent = state.w; }
+  if (sh) { sh.value = state.h; document.getElementById('sizeHVal').textContent = state.h; }
+  const ml = document.getElementById('mSizeLabel');
+  if (ml) ml.textContent = state.w + ' × ' + state.h;
+}
+function resizeGrid(nw, nh, record) {
+  if (record === undefined) record = true;
+  nw = Math.max(4, Math.min(100, nw|0));
+  nh = Math.max(4, Math.min(100, nh|0));
+  if (nw === state.w && nh === state.h) return;
+  const ng = emptyGrid(nw, nh);
+  const mw = Math.min(nw, state.w);
+  const mh = Math.min(nh, state.h);
+  for (let y = 0; y < mh; y++)
+    for (let x = 0; x < mw; x++)
+      ng[y][x] = state.grid[y][x];
+  state.w = nw; state.h = nh; state.grid = ng;
+  if (record) pushHistory();
+  syncSizeUI();
+  resizeCanvases();
+  renderAll();
+  updateStats();
+  toast('画布尺寸：' + nw + '×' + nh);
+}
+
+function resizeCanvases() {
+  const pw = state.w * CELL;
+  const ph = state.h * CELL;
+  drawCanvas.width = pw; drawCanvas.height = ph;
+  refCanvas.width = pw; refCanvas.height = ph;
+  canvasStack.style.width = pw + 'px';
+  canvasStack.style.height = ph + 'px';
+  const stageW = pw + RULER;
+  const stageH = ph + RULER;
+  canvasStage.style.width = stageW + 'px';
+  canvasStage.style.height = stageH + 'px';
+
+  rulerH.width = pw; rulerH.height = RULER;
+  rulerH.style.width = pw + 'px';
+  rulerH.style.height = RULER + 'px';
+  rulerV.width = RULER; rulerV.height = ph;
+  rulerV.style.width = RULER + 'px';
+  rulerV.style.height = ph + 'px';
+
+  applyTransform();
+  drawRulers();
+  drawRef();
+}
+
+function applyTransform() {
+  canvasStage.style.transform = 'translate(' + state.panX + 'px,' + state.panY + 'px) scale(' + state.scale + ')';
+}
+
+function fitToView() {
+  const wrap = canvasWrap.getBoundingClientRect();
+  const stageW = state.w * CELL + RULER;
+  const stageH = state.h * CELL + RULER;
+  const pad = 24;
+  const sx = (wrap.width - pad) / stageW;
+  const sy = (wrap.height - pad) / stageH;
+  state.scale = Math.max(0.3, Math.min(5, Math.min(sx, sy)));
+  state.panX = 0; state.panY = 0;
+  applyTransform();
+}
+
+/* ========== Rulers ========== */
+function drawRulers() {
+  const show = state.showRuler;
+  document.getElementById('rulerCorner').style.display = show ? 'block' : 'none';
+  rulerH.style.display = show ? 'block' : 'none';
+  rulerV.style.display = show ? 'block' : 'none';
+  if (!show) return;
+
+  rhctx.clearRect(0, 0, rulerH.width, rulerH.height);
+  rhctx.fillStyle = '#fff';
+  rhctx.fillRect(0, 0, rulerH.width, RULER);
+  rhctx.fillStyle = '#666';
+  rhctx.strokeStyle = '#999';
+  rhctx.lineWidth = 1;
+  rhctx.font = '9px sans-serif';
+  rhctx.textAlign = 'center';
+  rhctx.textBaseline = 'top';
+  for (let i = 0; i <= state.w; i++) {
+    const x = i * CELL;
+    let len = 4;
+    if (i % 10 === 0) len = 14;
+    else if (i % 5 === 0) len = 9;
+    rhctx.beginPath();
+    rhctx.moveTo(x + 0.5, RULER);
+    rhctx.lineTo(x + 0.5, RULER - len);
+    rhctx.stroke();
+    if (i % 10 === 0 && i > 0) rhctx.fillText(String(i), x, 2);
+  }
+
+  rvctx.clearRect(0, 0, rulerV.width, rulerV.height);
+  rvctx.fillStyle = '#fff';
+  rvctx.fillRect(0, 0, RULER, rulerV.height);
+  rvctx.fillStyle = '#666';
+  rvctx.strokeStyle = '#999';
+  rvctx.lineWidth = 1;
+  rvctx.font = '9px sans-serif';
+  rvctx.textAlign = 'right';
+  rvctx.textBaseline = 'middle';
+  for (let i = 0; i <= state.h; i++) {
+    const y = i * CELL;
+    let len = 4;
+    if (i % 10 === 0) len = 14;
+    else if (i % 5 === 0) len = 9;
+    rvctx.beginPath();
+    rvctx.moveTo(RULER, y + 0.5);
+    rvctx.lineTo(RULER - len, y + 0.5);
+    rvctx.stroke();
+    if (i % 10 === 0 && i > 0) rvctx.fillText(String(i), RULER - 4, y);
+  }
+}
+
+/* ========== Color helpers ========== */
+function hexToRgb(hex) {
+  const h = hex.replace('#','');
+  return {
+    r: parseInt(h.slice(0,2),16),
+    g: parseInt(h.slice(2,4),16),
+    b: parseInt(h.slice(4,6),16)
+  };
+}
+function luminance(hex) {
+  const rgb = hexToRgb(hex);
+  return 0.299*rgb.r + 0.587*rgb.g + 0.114*rgb.b;
+}
+function nearestColor(r, g, b) {
+  let best = PALETTE_RGB[0], bestD = Infinity;
+  for (let i = 0; i < PALETTE_RGB.length; i++) {
+    const p = PALETTE_RGB[i];
+    const d = (p.r-r)*(p.r-r) + (p.g-g)*(p.g-g) + (p.b-b)*(p.b-b);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best.code;
+}
+function lighten(hex, amt) {
+  const rgb = hexToRgb(hex);
+  const c = function(n){ return Math.min(255, n + amt); };
+  return 'rgb(' + c(rgb.r) + ',' + c(rgb.g) + ',' + c(rgb.b) + ')';
+}
+function darken(hex, amt) {
+  const rgb = hexToRgb(hex);
+  const c = function(n){ return Math.max(0, n - amt); };
+  return 'rgb(' + c(rgb.r) + ',' + c(rgb.g) + ',' + c(rgb.b) + ')';
+}
+
+/* ========== Rendering ========== */
+function renderAll() {
+  drawRef();
+  drawGrid();
+}
+function drawRef() {
+  rctx.clearRect(0, 0, refCanvas.width, refCanvas.height);
+  if (!state.refImage) return;
+  const img = state.refImage;
+  const cw = refCanvas.width, ch = refCanvas.height;
+  const scale = Math.min(cw / img.width, ch / img.height);
+  const dw = img.width * scale, dh = img.height * scale;
+  const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+  rctx.globalAlpha = state.refOpacity;
+  rctx.drawImage(img, dx, dy, dw, dh);
+  rctx.globalAlpha = 1;
+}
+
+function drawCell(ctx, x, y, code, mode, showCodeOverlay, cellSize) {
+  if (!code) return;
+  const hex = PALETTE_MAP[code];
+  if (!hex) return;
+  const px = x * cellSize, py = y * cellSize;
+  const lum = luminance(hex);
+  const darkBg = lum < 140;
+
+  if (mode === 'block' || mode === 'code') {
+    ctx.fillStyle = hex;
+    ctx.fillRect(px, py, cellSize, cellSize);
+  } else if (mode === 'bead') {
+    const cx = px + cellSize / 2, cy = py + cellSize / 2;
+    const r = cellSize * 0.46;
+    const grad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, r*0.1, cx, cy, r);
+    grad.addColorStop(0, lighten(hex, 40));
+    grad.addColorStop(0.55, hex);
+    grad.addColorStop(1, darken(hex, 35));
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, cellSize * 0.12, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  const drawCode = mode === 'code' || (showCodeOverlay && (mode === 'block' || mode === 'bead'));
+  if (drawCode) {
+    const fontSize = mode === 'code' ? 9 : 7.5;
+    ctx.font = 'bold ' + fontSize + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const tx = px + cellSize / 2, ty = py + cellSize / 2;
+    if (darkBg) {
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2.5;
+      ctx.strokeText(code, tx, ty);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(code, tx, ty);
+    } else {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2.5;
+      ctx.strokeText(code, tx, ty);
+      ctx.fillStyle = '#222';
+      ctx.fillText(code, tx, ty);
+    }
+  }
+}
+
+function drawGridLinesOn(ctx, w, h, cellSize) {
+  if (!state.showGrid) return;
+  const pw = w * cellSize, ph = h * cellSize;
+
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  for (let x = 0; x <= w; x++) {
+    ctx.moveTo(x * cellSize + 0.25, 0);
+    ctx.lineTo(x * cellSize + 0.25, ph);
+  }
+  for (let y = 0; y <= h; y++) {
+    ctx.moveTo(0, y * cellSize + 0.25);
+    ctx.lineTo(pw, y * cellSize + 0.25);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(90,90,90,0.8)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 2]);
+  ctx.beginPath();
+  for (let x = 0; x <= w; x += 5) {
+    ctx.moveTo(x * cellSize + 0.5, 0);
+    ctx.lineTo(x * cellSize + 0.5, ph);
+  }
+  for (let y = 0; y <= h; y += 5) {
+    ctx.moveTo(0, y * cellSize + 0.5);
+    ctx.lineTo(pw, y * cellSize + 0.5);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(50,110,200,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  for (let x = 0; x <= w; x += 10) {
+    ctx.moveTo(x * cellSize + 0.5, 0);
+    ctx.lineTo(x * cellSize + 0.5, ph);
+  }
+  for (let y = 0; y <= h; y += 10) {
+    ctx.moveTo(0, y * cellSize + 0.5);
+    ctx.lineTo(pw, y * cellSize + 0.5);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawGrid() {
+  const ctx = dctx;
+  const pw = state.w * CELL, ph = state.h * CELL;
+  ctx.clearRect(0, 0, pw, ph);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, pw, ph);
+
+  const mode = state.previewMode;
+  const showOverlay = state.showCodes && mode !== 'code';
+
+  for (let y = 0; y < state.h; y++) {
+    for (let x = 0; x < state.w; x++) {
+      const code = state.grid[y][x];
+      if (code) drawCell(ctx, x, y, code, mode, showOverlay, CELL);
+    }
+  }
+  drawGridLinesOn(ctx, state.w, state.h, CELL);
+}
+
+/* ========== Paint ========== */
+function cellFromEvent(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  let clientX, clientY;
+  if (e.touches && e.touches.length) {
+    clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
+  } else if (e.changedTouches && e.changedTouches.length) {
+    clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
+  } else {
+    clientX = e.clientX;
+    clientY = e.clientY;
+  }
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const sx = (clientX - rect.left) / rect.width * state.w;
+  const sy = (clientY - rect.top) / rect.height * state.h;
+  const cx = Math.floor(sx);
+  const cy = Math.floor(sy);
+  if (cx < 0 || cy < 0 || cx >= state.w || cy >= state.h) return null;
+  return { x: cx, y: cy };
+}
+
+function paintAt(x, y) {
+  if (x < 0 || y < 0 || x >= state.w || y >= state.h) return false;
+  if (state.tool === 'pen') {
+    if (state.grid[y][x] === state.color) return false;
+    state.grid[y][x] = state.color;
+    return true;
+  } else if (state.tool === 'eraser') {
+    if (state.grid[y][x] === null) return false;
+    state.grid[y][x] = null;
+    return true;
+  } else if (state.tool === 'eyedropper') {
+    const c = state.grid[y][x];
+    if (c) {
+      setColor(c);
+      setTool('pen');
+      toast('已取色 ' + c + '，切换为画笔');
+    } else {
+      toast('该格为空');
+    }
+    return false;
+  }
+  return false;
+}
+
+function paintLine(x0, y0, x1, y1) {
+  let changed = false;
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  let x = x0, y = y0;
+  while (true) {
+    if (paintAt(x, y)) changed = true;
+    if (x === x1 && y === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x += sx; }
+    if (e2 < dx) { err += dx; y += sy; }
+  }
+  return changed;
+}
+
+/* ========== Tools / Color ========== */
+function setTool(t) {
+  state.tool = t;
+  document.querySelectorAll('.tool-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.tool === t);
+  });
+  drawCanvas.style.cursor = t === 'eyedropper' ? 'copy' : 'crosshair';
+}
+function setColor(code) {
+  if (!PALETTE_MAP[code]) return;
+  state.color = code;
+  updateColorUI();
+  highlightPalette();
+}
+function updateColorUI() {
+  const hex = PALETTE_MAP[state.color];
+  ['curSwatch','mCurSwatch'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.style.background = hex;
+  });
+  ['curCode','mCurCode'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.textContent = state.color;
+  });
+  ['curHex','mCurHex'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.textContent = hex;
+  });
+}
+function highlightPalette() {
+  document.querySelectorAll('.palette-item').forEach(function(el) {
+    el.classList.toggle('selected', el.dataset.code === state.color);
+  });
+}
+
+function buildPalette(container, filter) {
+  filter = filter || '';
+  container.innerHTML = '';
+  const q = filter.trim().toLowerCase();
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < PALETTE.length; i++) {
+    const p = PALETTE[i];
+    if (q && p.code.toLowerCase().indexOf(q) < 0 && p.hex.toLowerCase().indexOf(q) < 0) continue;
+    const el = document.createElement('div');
+    el.className = 'palette-item' + (luminance(p.hex) < 140 ? ' light-text' : '');
+    if (p.code === state.color) el.classList.add('selected');
+    el.style.background = p.hex;
+    el.dataset.code = p.code;
+    el.textContent = p.code;
+    el.title = p.code + ' ' + p.hex;
+    el.onclick = (function(code){ return function(){ setColor(code); toast('已选中 ' + code); }; })(p.code);
+    frag.appendChild(el);
+  }
+  container.appendChild(frag);
+}
+
+/* ========== Stats ========== */
+function updateStats() {
+  const counts = {};
+  let total = 0;
+  for (let y = 0; y < state.h; y++) {
+    for (let x = 0; x < state.w; x++) {
+      const c = state.grid[y][x];
+      if (c) { counts[c] = (counts[c] || 0) + 1; total++; }
+    }
+  }
+  const kinds = Object.keys(counts).length;
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statKinds').textContent = kinds;
+  const mt = document.getElementById('mStatTotal');
+  const mk = document.getElementById('mStatKinds');
+  if (mt) mt.textContent = total;
+  if (mk) mk.textContent = kinds;
+
+  const sorted = Object.entries(counts).sort(function(a,b){ return b[1] - a[1]; });
+  const max = sorted.length ? sorted[0][1] : 1;
+  const list = document.getElementById('statsList');
+  list.innerHTML = sorted.map(function(pair) {
+    const code = pair[0], cnt = pair[1];
+    const hex = PALETTE_MAP[code] || '#ccc';
+    const pct = Math.round(cnt / max * 100);
+    return '<div class="stat-row"><div class="sw" style="background:' + hex + '"></div><div>' + code + '</div><div class="bar-wrap"><div class="bar" style="width:' + pct + '%"></div></div><div class="cnt">' + cnt + '</div></div>';
+  }).join('');
+}
+
+/* ========== Transforms ========== */
+function flipH() {
+  for (let y = 0; y < state.h; y++) state.grid[y].reverse();
+  pushHistory(); renderAll(); updateStats(); toast('已水平镜像');
+}
+function flipV() {
+  state.grid.reverse();
+  pushHistory(); renderAll(); updateStats(); toast('已垂直镜像');
+}
+function rotate90() {
+  const nw = state.h, nh = state.w;
+  const ng = emptyGrid(nw, nh);
+  for (let y = 0; y < state.h; y++)
+    for (let x = 0; x < state.w; x++)
+      ng[x][state.h - 1 - y] = state.grid[y][x];
+  state.w = nw; state.h = nh; state.grid = ng;
+  pushHistory(); syncSizeUI(); resizeCanvases(); renderAll(); updateStats();
+  toast('已旋转 90°');
+}
+
+/* ========== Preview mode ========== */
+function cyclePreview() {
+  const i = PREVIEW_MODES.indexOf(state.previewMode);
+  state.previewMode = PREVIEW_MODES[(i + 1) % PREVIEW_MODES.length];
+  updatePreviewLabels();
+  renderAll();
+  toast('预览模式：' + PREVIEW_LABELS[state.previewMode]);
+}
+function updatePreviewLabels() {
+  const label = '预览：' + PREVIEW_LABELS[state.previewMode];
+  ['btnPreviewMode','mPreviewMode','tPreview'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.textContent = label;
+  });
+}
+
+/* ========== Clear / Export ========== */
+async function clearCanvas() {
+  const ok = await confirmDialog('清空画布', '确定清空所有拼豆吗？此操作可撤销。');
+  if (!ok) return;
+  state.grid = emptyGrid(state.w, state.h);
+  pushHistory(); renderAll(); updateStats(); toast('已清空画布');
+}
+
+function exportPNG() {
+  const cell = CELL;
+  const pw = state.w * cell, ph = state.h * cell;
+  const off = document.createElement('canvas');
+  off.width = pw; off.height = ph;
+  const ctx = off.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, pw, ph);
+  const mode = state.previewMode;
+  const showOverlay = state.showCodes && mode !== 'code';
+  for (let y = 0; y < state.h; y++)
+    for (let x = 0; x < state.w; x++)
+      if (state.grid[y][x]) drawCell(ctx, x, y, state.grid[y][x], mode, showOverlay, cell);
+  drawGridLinesOn(ctx, state.w, state.h, cell);
+  off.toBlob(function(blob) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '拼豆图纸_' + state.w + 'x' + state.h + '.png';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('已导出 PNG');
+  });
+}
+
+/* ========== Image to beads ========== */
+function colorDelta(a, b) {
+  return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+}
+function detectBlockSize(imgData, iw, ih) {
+  const candidates = [16, 12, 10, 8, 6, 5, 4, 3, 2];
+  const data = imgData.data;
+  function get(x, y) {
+    x = Math.min(iw - 1, Math.max(0, x|0));
+    y = Math.min(ih - 1, Math.max(0, y|0));
+    const i = (y * iw + x) * 4;
+    return { r: data[i], g: data[i+1], b: data[i+2], a: data[i+3] };
+  }
+  for (let ci = 0; ci < candidates.length; ci++) {
+    const N = candidates[ci];
+    if (iw < N * 2 || ih < N * 2) continue;
+    const cols = Math.floor(iw / N);
+    const rows = Math.floor(ih / N);
+    let consistent = 0, total = 0;
+    for (let by = 0; by < rows; by++) {
+      for (let bx = 0; bx < cols; bx++) {
+        const x0 = bx * N, y0 = by * N;
+        const samples = [
+          get(x0, y0),
+          get(x0 + N - 1, y0),
+          get(x0, y0 + N - 1),
+          get(x0 + N - 1, y0 + N - 1),
+          get(x0 + (N >> 1), y0 + (N >> 1))
+        ];
+        if (samples.every(function(s){ return s.a < 30; })) continue;
+        total++;
+        let ok = true;
+        for (let i = 1; i < samples.length; i++) {
+          if (colorDelta(samples[0], samples[i]) >= 30) { ok = false; break; }
+        }
+        if (ok) consistent++;
+      }
+    }
+    if (total > 0 && consistent / total >= 0.9) return N;
+  }
+  return 1;
+}
+
+function imageToBeads(img, blockOpt) {
+  const tmp = document.createElement('canvas');
+  tmp.width = img.width; tmp.height = img.height;
+  const tctx = tmp.getContext('2d');
+  tctx.imageSmoothingEnabled = false;
+  tctx.drawImage(img, 0, 0);
+  const imgData = tctx.getImageData(0, 0, img.width, img.height);
+
+  let N = blockOpt === 'auto' ? detectBlockSize(imgData, img.width, img.height) : parseInt(blockOpt, 10);
+  if (!N || N < 1) N = 1;
+
+  let tw = Math.floor(img.width / N);
+  let th = Math.floor(img.height / N);
+  if (tw < 1) tw = 1; if (th < 1) th = 1;
+
+  const data = imgData.data;
+  const iw = img.width, ih = img.height;
+
+  // If oversize, scale proportionally
+  let scaleDown = false;
+  let outW = tw, outH = th;
+  if (tw > 100 || th > 100) {
+    const s = Math.min(100 / tw, 100 / th);
+    outW = Math.max(4, Math.floor(tw * s));
+    outH = Math.max(4, Math.floor(th * s));
+    scaleDown = true;
+  }
+  outW = Math.min(100, Math.max(4, outW));
+  outH = Math.min(100, Math.max(4, outH));
+
+  const ng = emptyGrid(outW, outH);
+  let beads = 0;
+
+  for (let y = 0; y < outH; y++) {
+    for (let x = 0; x < outW; x++) {
+      let cx, cy;
+      if (!scaleDown) {
+        cx = Math.min(iw - 1, x * N + Math.floor(N / 2));
+        cy = Math.min(ih - 1, y * N + Math.floor(N / 2));
+      } else {
+        // map through original block grid then scale
+        const bx = Math.floor(x * tw / outW);
+        const by = Math.floor(y * th / outH);
+        cx = Math.min(iw - 1, bx * N + Math.floor(N / 2));
+        cy = Math.min(ih - 1, by * N + Math.floor(N / 2));
+      }
+      const i = (cy * iw + cx) * 4;
+      if (data[i + 3] < 30) { ng[y][x] = null; continue; }
+      ng[y][x] = nearestColor(data[i], data[i+1], data[i+2]);
+      beads++;
+    }
+  }
+
+  state.w = outW; state.h = outH; state.grid = ng;
+  pushHistory();
+  syncSizeUI();
+  resizeCanvases();
+  fitToView();
+  renderAll();
+  updateStats();
+  toast('转换完成：' + state.w + '×' + state.h + '，像素块 ' + N + '×' + N + '，共 ' + beads + ' 豆');
+}
+
+/* ========== Pointer / Touch ========== */
+function onPointerDown(e) {
+  if (e.touches && e.touches.length > 1) return;
+  const cell = cellFromEvent(e);
+  if (!cell) {
+    if (e.touches && e.touches.length === 1) {
+      state._panning = true;
+      state._panStart = {
+        x: e.touches[0].clientX - state.panX,
+        y: e.touches[0].clientY - state.panY
+      };
+    }
+    return;
+  }
+  // Mobile: if pen tool and empty cell and not drawing intent for pan on empty —
+  // Spec: one finger draw; one finger pan on empty.
+  // Interpret empty as empty bead cell: when pen and cell empty, still paint.
+  // Pan when starting outside canvas or with eraser on empty? Better:
+  // Pan when long-press empty OR when tool is pen and we use two-finger (pinch).
+  // For empty-cell pan: if cell is empty AND tool is eraser? Spec says 空白处.
+  // I'll pan when the touch starts outside the drawCanvas (null cell), already handled.
+  // Additionally: if cell empty and tool is pen, paint. Good.
+
+  if (state.tool === 'eyedropper') {
+    paintAt(cell.x, cell.y);
+    return;
+  }
+  state.drawing = true;
+  state.strokeChanged = false;
+  state.lastCell = cell;
+  if (paintAt(cell.x, cell.y)) {
+    state.strokeChanged = true;
+    renderAll();
+  }
+  e.preventDefault();
+}
+function onPointerMove(e) {
+  if (state._panning && e.touches && e.touches.length === 1) {
+    state.panX = e.touches[0].clientX - state._panStart.x;
+    state.panY = e.touches[0].clientY - state._panStart.y;
+    applyTransform();
+    e.preventDefault();
+    return;
+  }
+  const cell = cellFromEvent(e);
+  const hint = document.getElementById('coordHint');
+  if (hint) hint.textContent = cell ? ('(' + (cell.x + 1) + ', ' + (cell.y + 1) + ')') : '—';
+  if (!state.drawing || !cell) return;
+  if (state.lastCell) {
+    if (paintLine(state.lastCell.x, state.lastCell.y, cell.x, cell.y)) state.strokeChanged = true;
+  } else {
+    if (paintAt(cell.x, cell.y)) state.strokeChanged = true;
+  }
+  state.lastCell = cell;
+  renderAll();
+  e.preventDefault();
+}
+function onPointerUp() {
+  if (state.drawing) {
+    state.drawing = false;
+    state.lastCell = null;
+    if (state.strokeChanged) {
+      pushHistory();
+      updateStats();
+    }
+    state.strokeChanged = false;
+  }
+  state._panning = false;
+}
+
+drawCanvas.addEventListener('mousedown', onPointerDown);
+window.addEventListener('mousemove', onPointerMove);
+window.addEventListener('mouseup', onPointerUp);
+drawCanvas.addEventListener('touchstart', onPointerDown, { passive: false });
+drawCanvas.addEventListener('touchmove', onPointerMove, { passive: false });
+drawCanvas.addEventListener('touchend', onPointerUp);
+drawCanvas.addEventListener('touchcancel', onPointerUp);
+
+/* Pinch zoom 0.3–5× around pinch center */
+let pinchStartDist = 0, pinchStartScale = 1;
+let pinchMidX = 0, pinchMidY = 0, pinchPanX = 0, pinchPanY = 0;
+canvasWrap.addEventListener('touchstart', function(e) {
+  if (e.touches.length === 2) {
+    state.drawing = false;
+    state._panning = false;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    pinchStartDist = Math.hypot(dx, dy) || 1;
+    pinchStartScale = state.scale;
+    const wrapRect = canvasWrap.getBoundingClientRect();
+    pinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - wrapRect.left - wrapRect.width / 2;
+    pinchMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - wrapRect.top - wrapRect.height / 2;
+    pinchPanX = state.panX;
+    pinchPanY = state.panY;
+  }
+}, { passive: false });
+canvasWrap.addEventListener('touchmove', function(e) {
+  if (e.touches.length === 2 && pinchStartDist) {
+    e.preventDefault();
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    const newScale = Math.max(0.3, Math.min(5, pinchStartScale * (dist / pinchStartDist)));
+    const ratio = newScale / pinchStartScale;
+    // zoom around initial pinch midpoint
+    state.scale = newScale;
+    state.panX = pinchMidX + (pinchPanX - pinchMidX) * ratio;
+    state.panY = pinchMidY + (pinchPanY - pinchMidY) * ratio;
+    applyTransform();
+  }
+}, { passive: false });
+canvasWrap.addEventListener('touchend', function(e) {
+  if (e.touches.length < 2) pinchStartDist = 0;
+});
+
+canvasWrap.addEventListener('wheel', function(e) {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  state.scale = Math.max(0.3, Math.min(5, state.scale * delta));
+  applyTransform();
+}, { passive: false });
+
+/* Pan on empty wrap area (outside bead grid) — mobile + desktop middle/space optional */
+canvasWrap.addEventListener('touchstart', function(e) {
+  if (e.touches.length !== 1) return;
+  if (e.target === drawCanvas || drawCanvas.contains(e.target)) return;
+  state._panning = true;
+  state._panStart = {
+    x: e.touches[0].clientX - state.panX,
+    y: e.touches[0].clientY - state.panY
+  };
+}, { passive: true });
+canvasWrap.addEventListener('mousedown', function(e) {
+  if (e.button !== 1 && !(e.button === 0 && e.altKey)) return;
+  if (e.target === drawCanvas) return;
+  state._panning = true;
+  state._panStart = { x: e.clientX - state.panX, y: e.clientY - state.panY };
+  e.preventDefault();
+});
+window.addEventListener('mousemove', function(e) {
+  if (!state._panning || e.touches) return;
+  if (!(e.buttons & 1) && !(e.buttons & 4)) { state._panning = false; return; }
+  // only for alt/middle pan from wrap
+  if (state._panStart && !state.drawing) {
+    state.panX = e.clientX - state._panStart.x;
+    state.panY = e.clientY - state._panStart.y;
+    applyTransform();
+  }
+});
+
+/* Keyboard */
+window.addEventListener('keydown', function(e) {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (e.key === 'b' || e.key === 'B') { setTool('pen'); toast('画笔'); }
+  else if (e.key === 'e' || e.key === 'E') { setTool('eraser'); toast('橡皮'); }
+  else if (e.key === 'i' || e.key === 'I') { setTool('eyedropper'); toast('取色器'); }
+  else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+    e.preventDefault(); undo();
+  } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+    e.preventDefault(); redo();
+  } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault(); redo();
+  }
+});
+
+/* Tool buttons */
+document.querySelectorAll('.tool-btn').forEach(function(btn) {
+  btn.addEventListener('click', function(){ setTool(btn.dataset.tool); });
+});
+
+['btnUndo','tUndo','mUndo'].forEach(function(id) {
+  const el = document.getElementById(id); if (el) el.addEventListener('click', undo);
+});
+['btnRedo','tRedo','mRedo'].forEach(function(id) {
+  const el = document.getElementById(id); if (el) el.addEventListener('click', redo);
+});
+
+document.getElementById('sizeW').addEventListener('input', function(e) {
+  document.getElementById('sizeWVal').textContent = e.target.value;
+});
+document.getElementById('sizeH').addEventListener('input', function(e) {
+  document.getElementById('sizeHVal').textContent = e.target.value;
+});
+document.getElementById('sizeW').addEventListener('change', function(e){ resizeGrid(+e.target.value, state.h); });
+document.getElementById('sizeH').addEventListener('change', function(e){ resizeGrid(state.w, +e.target.value); });
+document.getElementById('sizePresets').addEventListener('click', function(e) {
+  const b = e.target.closest('button[data-size]');
+  if (b) resizeGrid(+b.dataset.size, +b.dataset.size);
+});
+document.getElementById('mPresets').addEventListener('click', function(e) {
+  const b = e.target.closest('button[data-size]');
+  if (b) resizeGrid(+b.dataset.size, +b.dataset.size);
+});
+document.getElementById('mWMinus').addEventListener('click', function(){ resizeGrid(state.w - 1, state.h - 1); });
+document.getElementById('mWPlus').addEventListener('click', function(){ resizeGrid(state.w + 1, state.h + 1); });
+
+document.getElementById('btnFlipH').addEventListener('click', flipH);
+document.getElementById('btnFlipV').addEventListener('click', flipV);
+document.getElementById('btnRotate').addEventListener('click', rotate90);
+document.getElementById('mFlipH').addEventListener('click', flipH);
+document.getElementById('mFlipV').addEventListener('click', flipV);
+document.getElementById('mRotate').addEventListener('click', rotate90);
+
+function bindCheck(id, mid, key, fn) {
+  const a = document.getElementById(id);
+  const b = document.getElementById(mid);
+  function handler(src) {
+    state[key] = src.checked;
+    if (a && a !== src) a.checked = src.checked;
+    if (b && b !== src) b.checked = src.checked;
+    fn();
+  }
+  if (a) a.addEventListener('change', function(){ handler(a); });
+  if (b) b.addEventListener('change', function(){ handler(b); });
+}
+bindCheck('chkGrid', 'mChkGrid', 'showGrid', function(){ renderAll(); toast(state.showGrid ? '显示网格' : '隐藏网格'); });
+bindCheck('chkRuler', 'mChkRuler', 'showRuler', function(){ drawRulers(); toast(state.showRuler ? '显示标尺' : '隐藏标尺'); });
+bindCheck('chkCodes', 'mChkCodes', 'showCodes', function(){ renderAll(); toast(state.showCodes ? '显示色号' : '隐藏色号'); });
+
+document.getElementById('btnPreviewMode').addEventListener('click', cyclePreview);
+document.getElementById('mPreviewMode').addEventListener('click', cyclePreview);
+document.getElementById('tPreview').addEventListener('click', cyclePreview);
+
+function loadRef(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = function() {
+    state.refImage = img;
+    drawRef();
+    toast('已加载参考底图');
+  };
+  img.src = url;
+}
+document.getElementById('btnRefUpload').addEventListener('click', function(){ document.getElementById('refFile').click(); });
+document.getElementById('mRefUpload').addEventListener('click', function(){ document.getElementById('refFile').click(); });
+document.getElementById('refFile').addEventListener('change', function(e){ loadRef(e.target.files[0]); e.target.value = ''; });
+function removeRef() { state.refImage = null; drawRef(); toast('已移除参考底图'); }
+document.getElementById('btnRefRemove').addEventListener('click', removeRef);
+document.getElementById('mRefRemove').addEventListener('click', removeRef);
+function setRefOpacity(v) {
+  state.refOpacity = v / 100;
+  document.getElementById('refOpacityVal').textContent = v + '%';
+  document.getElementById('mRefOpacityVal').textContent = v + '%';
+  document.getElementById('refOpacity').value = v;
+  document.getElementById('mRefOpacity').value = v;
+  drawRef();
+}
+document.getElementById('refOpacity').addEventListener('input', function(e){ setRefOpacity(+e.target.value); });
+document.getElementById('mRefOpacity').addEventListener('input', function(e){ setRefOpacity(+e.target.value); });
+
+function pickImg2Bead() { document.getElementById('img2beadFile').click(); }
+document.getElementById('btnImg2Bead').addEventListener('click', pickImg2Bead);
+document.getElementById('mImg2Bead').addEventListener('click', pickImg2Bead);
+document.getElementById('img2beadFile').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const deskSel = document.getElementById('blockSize').value;
+  const mobSel = document.getElementById('mBlockSize').value;
+  const blockOpt = window.matchMedia('(max-width:768px)').matches ? mobSel : deskSel;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = function(){ imageToBeads(img, blockOpt); URL.revokeObjectURL(url); };
+  img.src = url;
+});
+document.getElementById('blockSize').addEventListener('change', function(e){
+  document.getElementById('mBlockSize').value = e.target.value;
+});
+document.getElementById('mBlockSize').addEventListener('change', function(e){
+  document.getElementById('blockSize').value = e.target.value;
+});
+
+document.getElementById('btnClear').addEventListener('click', clearCanvas);
+document.getElementById('mClear').addEventListener('click', clearCanvas);
+document.getElementById('btnExport').addEventListener('click', exportPNG);
+document.getElementById('mExport').addEventListener('click', exportPNG);
+
+document.getElementById('paletteSearch').addEventListener('input', function(e) {
+  buildPalette(document.getElementById('paletteGrid'), e.target.value);
+});
+document.getElementById('mPaletteSearch').addEventListener('input', function(e) {
+  buildPalette(document.getElementById('mPaletteGrid'), e.target.value);
+});
+
+document.getElementById('mobileTabs').addEventListener('click', function(e) {
+  const btn = e.target.closest('button[data-sheet]');
+  if (!btn) return;
+  const sheet = btn.dataset.sheet;
+  const already = btn.classList.contains('active') && document.getElementById('sheet-' + sheet).classList.contains('open');
+  document.querySelectorAll('#mobileTabs button').forEach(function(b){ b.classList.toggle('active', b === btn); });
+  document.querySelectorAll('.mobile-sheet').forEach(function(s) {
+    if (already) s.classList.remove('open');
+    else s.classList.toggle('open', s.id === 'sheet-' + sheet);
+  });
+});
+
+function init() {
+  buildPalette(document.getElementById('paletteGrid'));
+  buildPalette(document.getElementById('mPaletteGrid'));
+  setColor('A1');
+  setTool('pen');
+  pushHistory();
+  resizeCanvases();
+  fitToView();
+  renderAll();
+  updateStats();
+  updatePreviewLabels();
+  updateUndoRedo();
+  toast('欢迎使用拼豆编辑器 ✨');
+}
+window.addEventListener('resize', function(){ fitToView(); });
+init();
+
+</script>
+</body>
+</html>
